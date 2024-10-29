@@ -243,135 +243,290 @@
     </div>
 
     <script>
-        // Configuration
-        const config = {
-            contentPath: '/mkcms/content',
-            fileExtension: '.md',
-            excerptLength: 150,
-            owner: 'msieur-gab',
-            repo: 'mkcms',
-            branch: 'main'
+       // Configuration
+const config = {
+    contentPath: '/mkcms/content',
+    fileExtension: '.md',
+    excerptLength: 200,
+    owner: 'msieur-gab',
+    repo: 'mkcms',
+    branch: 'main'
+};
+
+// Configure marked options
+marked.setOptions({
+    gfm: true,                // GitHub Flavored Markdown
+    breaks: true,             // Convert line breaks to <br>
+    headerIds: true,          // Add IDs to headers
+    mangle: false,            // Don't escape HTML
+    pedantic: false,          // Don't be too strict
+    sanitize: false,          // Let DOMPurify handle sanitization
+    smartLists: true,         // Use smarter list behavior
+    smartypants: true,        // Use smart punctuation
+    xhtml: true              // Close empty elements with />
+});
+
+// DOM Elements
+const elements = {
+    contentList: document.getElementById('contentList'),
+    contentDisplay: document.getElementById('contentDisplay'),
+    breadcrumb: document.getElementById('breadcrumb'),
+    searchInput: document.getElementById('searchInput'),
+    tagFilter: document.getElementById('tagFilter')
+};
+
+// State management
+let currentContent = [];
+let selectedTags = new Set();
+
+// Content loading functions
+async function loadContentList() {
+    try {
+        const url = `${window.location.origin}${config.contentPath}/index.json`;
+        console.log('Loading index from:', url);
+        
+        const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`Failed to load index: ${response.status}`);
+        }
+        
+        currentContent = await response.json();
+        initializeFilters();
+        displayContentList(currentContent);
+    } catch (error) {
+        console.error('Error loading content index:', error);
+        showError(`Failed to load content list: ${error.message}`);
+    }
+}
+
+async function loadContent(filename) {
+    try {
+        // Try GitHub Pages URL first
+        let url = `${window.location.origin}${config.contentPath}/${filename}`;
+        console.log('Attempting to load from GitHub Pages:', url);
+        
+        let response = await fetch(url);
+        
+        // If GitHub Pages fails, try raw GitHub content
+        if (!response.ok) {
+            url = `https://raw.githubusercontent.com/${config.owner}/${config.repo}/${config.branch}/content/${filename}`;
+            console.log('Falling back to raw GitHub content:', url);
+            response = await fetch(url);
+            
+            if (!response.ok) {
+                throw new Error(`Failed to load content: ${response.status}`);
+            }
+        }
+        
+        const content = await response.text();
+        
+        // Remove frontmatter before rendering
+        const cleanContent = content.replace(/^---[\s\S]*?---/, '').trim();
+        displayContent(cleanContent, filename);
+    } catch (error) {
+        console.error('Error loading content:', error);
+        showError(`Failed to load content: ${error.message}`);
+    }
+}
+
+// Display functions
+function displayContentList(content) {
+    elements.contentList.innerHTML = '';
+    
+    const filteredContent = filterContent(content);
+    
+    if (filteredContent.length === 0) {
+        elements.contentList.innerHTML = `
+            <div class="no-results">
+                No content matches your criteria.
+                ${selectedTags.size > 0 ? '<br>Try removing some tag filters.' : ''}
+            </div>
+        `;
+        return;
+    }
+
+    filteredContent.forEach(item => {
+        const card = document.createElement('div');
+        card.className = 'content-card';
+        
+        const date = new Date(item.date).toLocaleDateString();
+        const tags = item.tags ? item.tags.map(tag => 
+            `<span class="tag" data-tag="${tag}">${tag}</span>`).join('') : '';
+        
+        card.innerHTML = `
+            <h2 class="content-title">${item.title}</h2>
+            <div class="content-meta">
+                <span class="date">${date}</span>
+                <div class="tags">${tags}</div>
+            </div>
+            ${item.description ? `
+                <div class="content-description">
+                    ${item.description}
+                </div>
+            ` : ''}
+        `;
+        
+        card.onclick = () => loadContent(item.file);
+        elements.contentList.appendChild(card);
+    });
+
+    // Add click handlers to tags
+    document.querySelectorAll('.tag').forEach(tag => {
+        tag.onclick = (e) => {
+            e.stopPropagation();
+            toggleTag(tag.dataset.tag);
         };
+    });
+}
 
-        // Configure marked options
-        marked.setOptions({
-            gfm: true, // GitHub Flavored Markdown
-            breaks: true, // Convert line breaks to <br>
-            headerIds: true, // Add IDs to headers
-            mangle: false, // Don't escape HTML
-            pedantic: false, // Don't be too strict
-            sanitize: false, // Let DOMPurify handle sanitization
-            smartLists: true, // Use smarter list behavior
-            smartypants: true, // Use smart punctuation
-            xhtml: true // Close empty elements with />
-        });
+function displayContent(content, filename) {
+    elements.contentList.classList.add('hidden');
+    elements.contentDisplay.classList.remove('hidden');
+    
+    // Create back button
+    const backButton = document.createElement('button');
+    backButton.className = 'back-button';
+    backButton.innerHTML = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M19 12H5M12 19l-7-7 7-7"/>
+        </svg>
+        Back to List
+    `;
+    backButton.onclick = showContentList;
+    
+    // Update URL
+    updateURL(filename);
+    
+    // Parse and sanitize markdown
+    const parsedContent = marked.parse(content);
+    const sanitizedContent = DOMPurify.sanitize(parsedContent);
+    
+    elements.contentDisplay.innerHTML = '';
+    elements.contentDisplay.appendChild(backButton);
+    elements.contentDisplay.insertAdjacentHTML('beforeend', sanitizedContent);
+    
+    // Add copy buttons to code blocks
+    addCodeBlockCopyButtons();
+}
 
-        async function loadContentList() {
-            try {
-                const url = `${window.location.origin}${config.contentPath}/index.json`;
-                console.log('Loading index from:', url);
-                
-                const response = await fetch(url);
-                if (!response.ok) {
-                    throw new Error(`Failed to load index: ${response.status}`);
-                }
-                const contentIndex = await response.json();
-                displayContentList(contentIndex);
-            } catch (error) {
-                console.error('Error loading content index:', error);
-                showError(`Failed to load content list: ${error.message}`);
-            }
+// Filter functions
+function initializeFilters() {
+    // Get all unique tags
+    const tags = new Set();
+    currentContent.forEach(item => {
+        if (item.tags) {
+            item.tags.forEach(tag => tags.add(tag));
         }
+    });
+    
+    // Create tag filter buttons
+    const tagList = Array.from(tags).sort();
+    elements.tagFilter.innerHTML = tagList.map(tag => `
+        <button class="tag-filter" data-tag="${tag}">
+            ${tag}
+            <span class="tag-count">${countContentWithTag(tag)}</span>
+        </button>
+    `).join('');
+    
+    // Add click handlers
+    elements.tagFilter.querySelectorAll('.tag-filter').forEach(button => {
+        button.onclick = () => toggleTag(button.dataset.tag);
+    });
+}
 
-        async function loadContent(filename) {
-            try {
-                // Try GitHub Pages URL first
-                let url = `${window.location.origin}${config.contentPath}/${filename}`;
-                console.log('Attempting to load from GitHub Pages:', url);
-                
-                let response = await fetch(url);
-                
-                // If GitHub Pages fails, try raw GitHub content
-                if (!response.ok) {
-                    url = `https://raw.githubusercontent.com/${config.owner}/${config.repo}/${config.branch}/content/${filename}`;
-                    console.log('Falling back to raw GitHub content:', url);
-                    response = await fetch(url);
-                    
-                    if (!response.ok) {
-                        throw new Error(`Failed to load content: ${response.status}`);
-                    }
-                }
-                
-                const content = await response.text();
-                
-                // Remove frontmatter before rendering
-                const cleanContent = content.replace(/^---[\s\S]*?---/, '').trim();
-                displayContent(cleanContent);
-            } catch (error) {
-                console.error('Error loading content:', error);
-                showError(`Failed to load content: ${error.message}`);
-            }
+function filterContent(content) {
+    return content.filter(item => {
+        // Tag filter
+        if (selectedTags.size > 0) {
+            if (!item.tags) return false;
+            return Array.from(selectedTags).every(tag => item.tags.includes(tag));
         }
+        return true;
+    });
+}
 
-        function displayContentList(contentIndex) {
-            const contentList = document.getElementById('contentList');
-            contentList.innerHTML = '';
+function toggleTag(tag) {
+    if (selectedTags.has(tag)) {
+        selectedTags.delete(tag);
+    } else {
+        selectedTags.add(tag);
+    }
+    
+    // Update UI
+    document.querySelectorAll(`.tag-filter[data-tag="${tag}"]`)
+        .forEach(button => button.classList.toggle('active'));
+    
+    displayContentList(currentContent);
+}
 
-            contentIndex.forEach(item => {
-                const card = document.createElement('div');
-                card.className = 'content-card';
-                
-                const date = new Date(item.date).toLocaleDateString();
-                const tags = item.tags ? item.tags.map(tag => 
-                    `<span class="tag">${tag}</span>`).join('') : '';
+function countContentWithTag(tag) {
+    return currentContent.filter(item => item.tags && item.tags.includes(tag)).length;
+}
 
-                card.innerHTML = `
-                    <h2 class="content-title">${item.title}</h2>
-                    <div class="content-meta">
-                        ${date}
-                        ${tags}
-                    </div>
-                `;
-                
-                card.onclick = () => loadContent(item.file);
-                contentList.appendChild(card);
-            });
-        }
+// URL handling
+function updateURL(filename) {
+    const params = new URLSearchParams(window.location.search);
+    if (filename) {
+        params.set('post', filename);
+    } else {
+        params.delete('post');
+    }
+    
+    const newUrl = `${window.location.pathname}${params.toString() ? '?' + params.toString() : ''}`;
+    history.pushState({}, '', newUrl);
+}
 
-        function displayContent(content) {
-            document.getElementById('contentList').classList.add('hidden');
-            const contentDisplay = document.getElementById('contentDisplay');
-            contentDisplay.classList.remove('hidden');
-            
-            // Create back button
-            const backButton = document.createElement('button');
-            backButton.className = 'back-button';
-            backButton.textContent = 'Back to List';
-            backButton.onclick = showContentList;
-            
-            // Parse and sanitize markdown
-            const parsedContent = marked.parse(content);
-            const sanitizedContent = DOMPurify.sanitize(parsedContent);
-            
-            contentDisplay.innerHTML = '';
-            contentDisplay.appendChild(backButton);
-            contentDisplay.insertAdjacentHTML('beforeend', sanitizedContent);
-        }
+function handleURLParameters() {
+    const params = new URLSearchParams(window.location.search);
+    const post = params.get('post');
+    if (post) {
+        loadContent(post);
+    }
+}
 
-        function showContentList() {
-            document.getElementById('contentDisplay').classList.add('hidden');
-            document.getElementById('contentList').classList.remove('hidden');
-        }
+// Utility functions
+function showError(message) {
+    const error = document.createElement('div');
+    error.className = 'error';
+    error.textContent = message;
+    elements.contentList.appendChild(error);
+}
 
-        function showError(message) {
-            const error = document.createElement('div');
-            error.className = 'error';
-            error.textContent = message;
-            document.getElementById('contentList').appendChild(error);
-        }
+function addCodeBlockCopyButtons() {
+    document.querySelectorAll('pre code').forEach(block => {
+        const button = document.createElement('button');
+        button.className = 'copy-button';
+        button.innerHTML = 'Copy';
+        
+        button.onclick = async () => {
+            await navigator.clipboard.writeText(block.textContent);
+            button.innerHTML = 'Copied!';
+            setTimeout(() => button.innerHTML = 'Copy', 2000);
+        };
+        
+        const wrapper = document.createElement('div');
+        wrapper.className = 'code-block-wrapper';
+        block.parentNode.insertBefore(wrapper, block);
+        wrapper.appendChild(block);
+        wrapper.appendChild(button);
+    });
+}
 
-        // Initialize on load
-        document.addEventListener('DOMContentLoaded', loadContentList);
-    </script>
+function showContentList() {
+    elements.contentDisplay.classList.add('hidden');
+    elements.contentList.classList.remove('hidden');
+    updateURL(null);
+}
+
+// Initialize
+document.addEventListener('DOMContentLoaded', () => {
+    loadContentList();
+    handleURLParameters();
+    
+    // Handle browser back/forward
+    window.onpopstate = () => {
+        handleURLParameters();
+    };
+}); </script>
 </body>
 </html>
