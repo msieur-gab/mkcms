@@ -23,19 +23,25 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: '20'
-        cache: 'npm'
 
-    - name: Setup Node Project
+    - name: Setup Node Project and Install Dependencies
       run: |
+        # Create package.json
         echo '{
           "name": "content-indexer",
           "version": "1.0.0",
           "private": true,
-          "type": "commonjs"
+          "type": "commonjs",
+          "dependencies": {
+            "gray-matter": "^4.0.3"
+          }
         }' > package.json
-
-    - name: Install dependencies
-      run: npm install gray-matter
+        
+        # Install dependencies and generate lock file
+        npm install
+        
+        # Verify lock file was created
+        ls -la package-lock.json
 
     - name: Generate Index
       run: |
@@ -143,5 +149,5 @@ jobs:
       run: |
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
-        git add content/
+        git add content/ package.json package-lock.json
         git diff --quiet && git diff --staged --quiet || (git commit -m "Update content and index" && git push)
