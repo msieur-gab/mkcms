@@ -39,9 +39,14 @@ jobs:
         
         # Install dependencies and generate lock file
         npm install
-        
-        # Verify lock file was created
-        ls -la package-lock.json
+
+    - name: Create content directory if it doesn't exist
+      run: |
+        mkdir -p content
+        # If your markdown file is in the root, move it to content
+        if [ -f "*.md" ]; then
+          mv *.md content/
+        fi
 
     - name: Generate Index
       run: |
@@ -53,8 +58,25 @@ jobs:
         async function generateIndex() {
           try {
             const contentDir = 'content';
+            
+            // Ensure content directory exists
+            try {
+              await fs.access(contentDir);
+            } catch {
+              await fs.mkdir(contentDir, { recursive: true });
+            }
+            
             const files = await fs.readdir(contentDir);
             const mdFiles = files.filter(file => file.endsWith('.md'));
+
+            if (mdFiles.length === 0) {
+              console.log('No markdown files found in content directory');
+              await fs.writeFile(
+                path.join(contentDir, 'index.json'),
+                JSON.stringify([], null, 2)
+              );
+              return;
+            }
 
             const contentIndex = await Promise.all(
               mdFiles.map(async (file) => {
@@ -116,19 +138,31 @@ jobs:
       run: |
         # Create _site directory
         mkdir -p _site/content
-        # Copy content and index
+        
+        # Ensure content directory exists
+        mkdir -p content
+        
+        # Create empty index.json if it doesn't exist
+        [ ! -f "content/index.json" ] && echo "[]" > content/index.json
+        
+        # Copy index.json
         cp content/index.json _site/content/
-        for file in content/*.md; do
-          if [ -f "$file" ]; then
-            if ! grep -q "published: false" "$file"; then
-              cp "$file" _site/content/
+        
+        # Copy markdown files if they exist
+        if [ -n "$(find content -name '*.md' 2>/dev/null)" ]; then
+          for file in content/*.md; do
+            if [ -f "$file" ]; then
+              if ! grep -q "published: false" "$file"; then
+                cp "$file" _site/content/
+              fi
             fi
-          fi
-        done
-        # Copy other necessary files if they exist
-        [ -f "index.html" ] && cp index.html _site/
-        [ -d "styles" ] && cp -r styles _site/
-        [ -d "scripts" ] && cp -r scripts _site/
+          done
+        fi
+        
+        # Copy other files if they exist (make this part optional)
+        [ -f "index.html" ] && cp index.html _site/ || true
+        [ -d "styles" ] && cp -r styles _site/ || true
+        [ -d "scripts" ] && cp -r scripts _site/ || true
 
     - name: Upload artifact
       uses: actions/upload-pages-artifact@v2
