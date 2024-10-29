@@ -1,3 +1,9 @@
+---
+title: My First Post
+date: 2024-10-27
+tags: ["blog", "tutorial"]
+---
+
 Markdown Tutorial for Apostrophe
 ================================
 
