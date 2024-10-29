@@ -1,0 +1,54 @@
+# .github/workflows/generate-index.yml
+name: Generate Content Index
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'content/**'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Generate content index
+      run: |
+        cd content
+        echo "[" > index.json
+        first=true
+        for file in *.md; do
+          if [ "$first" = false ]; then
+            echo "," >> index.json
+          fi
+          first=false
+          
+          # Extract title and date from frontmatter
+          title=$(head -n 5 "$file" | grep "title:" | cut -d ":" -f 2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          date=$(head -n 5 "$file" | grep "date:" | cut -d ":" -f 2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          tags=$(head -n 5 "$file" | grep "tags:" | cut -d ":" -f 2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          
+          # Get excerpt (first paragraph after frontmatter)
+          excerpt=$(sed '1,/---/d' "$file" | awk 'NF{p=$0}END{print p}' | head -n 1)
+          
+          # Create JSON object
+          cat >> index.json << EOF
+          {
+            "title": "${title:-${file%.md}}",
+            "file": "$file",
+            "date": "${date:-$(date -r "$file" "+%Y-%m-%d")}",
+            "tags": [${tags:-}],
+            "excerpt": "${excerpt:0:150}..."
+          }
+EOF
+        done
+        echo "]" >> index.json
+
+    - name: Commit and push if changed
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add content/index.json
+        git diff --quiet && git diff --staged --quiet || (git commit -m "Update content index" && git push)
