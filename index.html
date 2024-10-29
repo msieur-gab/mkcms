@@ -133,56 +133,61 @@
     </div>
 
     <script>
-        // Wait for DOM and libraries to load
-        document.addEventListener('DOMContentLoaded', () => {
-            // Initialize marked with security options
-            if (typeof marked !== 'undefined') {
-                marked.setOptions({
-                    headerIds: true,
-                    mangle: false,
-                    breaks: true,
-                    sanitize: true // Enable built-in sanitizer
-                });
-            } else {
-                console.error('Marked library not loaded!');
-                showError('Failed to load markdown parser. Please refresh the page.');
-                return;
-            }
-
-            // Initialize DOMPurify if available
-            if (typeof DOMPurify === 'undefined') {
-                console.warn('DOMPurify not loaded, falling back to marked sanitizer');
-            }
-
-            // Start loading content
-            loadContentList();
-        });
-
-        // Configuration
+          // Configuration
         const config = {
-            contentPath: '/mkcms/content', // Adjust this to your content directory path
+            contentPath: '/mkcms/content',
             fileExtension: '.md',
-            excerptLength: 150
+            excerptLength: 150,
+            // Add repository information
+            owner: 'msieur-gab',
+            repo: 'mkcms',
+            branch: 'main' // or 'master', depending on your default branch
         };
 
-        // Cache for markdown content
-        const contentCache = new Map();
-
-        // Load and display content list
         async function loadContentList() {
             try {
-                const response = await fetch(`${config.contentPath}/index.json`);
-                if (!response.ok) throw new Error('Failed to load content index');
+                const url = `${window.location.origin}${config.contentPath}/index.json`;
+                console.log('Loading index from:', url);
                 
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`Failed to load index: ${response.status}`);
+                }
                 const contentIndex = await response.json();
                 displayContentList(contentIndex);
             } catch (error) {
-                showError('Failed to load content list. Please try again later.');
-                console.error('Error:', error);
+                console.error('Error loading content index:', error);
+                showError(`Failed to load content list: ${error.message}`);
             }
         }
 
-        // Display content cards
+        async function loadContent(filename) {
+            try {
+                // Try GitHub Pages URL first
+                let url = `${window.location.origin}${config.contentPath}/${filename}`;
+                console.log('Attempting to load from GitHub Pages:', url);
+                
+                let response = await fetch(url);
+                
+                // If GitHub Pages fails, try raw GitHub content
+                if (!response.ok) {
+                    url = `https://raw.githubusercontent.com/${config.owner}/${config.repo}/${config.branch}/content/${filename}`;
+                    console.log('Falling back to raw GitHub content:', url);
+                    response = await fetch(url);
+                    
+                    if (!response.ok) {
+                        throw new Error(`Failed to load content: ${response.status}`);
+                    }
+                }
+                
+                const content = await response.text();
+                displayContent(content);
+            } catch (error) {
+                console.error('Error loading content:', error);
+                showError(`Failed to load content: ${error.message}`);
+            }
+        }
+
         function displayContentList(contentIndex) {
             const contentList = document.getElementById('contentList');
             contentList.innerHTML = '';
@@ -190,10 +195,10 @@
             contentIndex.forEach(item => {
                 const card = document.createElement('div');
                 card.className = 'content-card';
-                card.onclick = () => loadContent(item.file);
-
+                
                 const date = new Date(item.date).toLocaleDateString();
-                const tags = item.tags ? item.tags.map(tag => `<span class="tag">${tag}</span>`).join('') : '';
+                const tags = item.tags ? item.tags.map(tag => 
+                    `<span class="tag">${tag}</span>`).join('') : '';
 
                 card.innerHTML = `
                     <h2 class="content-title">${item.title}</h2>
@@ -201,56 +206,33 @@
                         ${date}
                         ${tags}
                     </div>
-                    <div class="content-preview">${item.excerpt || ''}</div>
                 `;
-
+                
+                card.onclick = () => loadContent(item.file);
                 contentList.appendChild(card);
             });
         }
 
-        // Load and display individual content
-        async function loadContent(filename) {
-            try {
-                // Check cache first
-                if (contentCache.has(filename)) {
-                    displayContent(contentCache.get(filename));
-                    return;
-                }
-
-                const response = await fetch(`${config.contentPath}/${filename}`);
-                if (!response.ok) throw new Error('Failed to load content');
-                
-                const content = await response.text();
-                contentCache.set(filename, content);
-                displayContent(content);
-            } catch (error) {
-                showError('Failed to load content. Please try again later.');
-                console.error('Error:', error);
-            }
-        }
-
-        // Display markdown content with proper sanitization
         function displayContent(content) {
             document.getElementById('contentList').classList.add('hidden');
             const contentDisplay = document.getElementById('contentDisplay');
             contentDisplay.classList.remove('hidden');
-
-            // Parse markdown and sanitize
-            let htmlContent = marked.parse(content);
-            if (typeof DOMPurify !== 'undefined') {
-                htmlContent = DOMPurify.sanitize(htmlContent);
-            }
             
-            contentDisplay.innerHTML = htmlContent;
+            // Parse and sanitize markdown
+            const parsedContent = marked.parse(content);
+            const sanitizedContent = DOMPurify.sanitize(parsedContent);
+            contentDisplay.innerHTML = sanitizedContent;
+
+            // Add back button
+            const backButton = document.createElement('button');
+            backButton.textContent = 'Back to List';
+            backButton.onclick = () => {
+                contentDisplay.classList.add('hidden');
+                document.getElementById('contentList').classList.remove('hidden');
+            };
+            contentDisplay.insertBefore(backButton, contentDisplay.firstChild);
         }
 
-        // Show content list
-        function showContentList() {
-            document.getElementById('contentDisplay').classList.add('hidden');
-            document.getElementById('contentList').classList.remove('hidden');
-        }
-
-        // Show error message
         function showError(message) {
             const error = document.createElement('div');
             error.className = 'error';
@@ -258,11 +240,9 @@
             document.getElementById('contentList').appendChild(error);
         }
 
-        // Debug helper
-        function checkDependencies() {
-            console.log('Marked available:', typeof marked !== 'undefined');
-            console.log('DOMPurify available:', typeof DOMPurify !== 'undefined');
-        }
+        // Initialize on load
+        document.addEventListener('DOMContentLoaded', loadContentList);
+   
     </script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 </body>
