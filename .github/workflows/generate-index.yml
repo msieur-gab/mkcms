@@ -52,15 +52,6 @@ jobs:
         async function generateIndex() {
           try {
             const contentDir = 'content';
-            
-            // Ensure content directory exists
-            try {
-              await fs.access(contentDir);
-            } catch {
-              await fs.mkdir(contentDir, { recursive: true });
-            }
-            
-            // Get list of .md files
             const files = await fs.readdir(contentDir);
             const mdFiles = files.filter(file => file.endsWith('.md'));
             
@@ -73,25 +64,25 @@ jobs:
                   const content = await fs.readFile(filePath, 'utf-8');
                   const { data, content: markdownContent } = matter(content);
                   
-                  // Extract the first non-empty paragraph after frontmatter for description
+                  // Remove frontmatter markers and get content
                   const contentWithoutFrontmatter = markdownContent.trim();
+                  
+                  // Split into paragraphs
                   const paragraphs = contentWithoutFrontmatter.split(/\\n\\n+/);
-                  let description = paragraphs.find(p => {
+                  
+                  // Find first suitable paragraph for description
+                  let description = '';
+                  for (const p of paragraphs) {
                     const trimmed = p.trim();
-                    // Skip headers, code blocks, or empty lines
-                    return trimmed && 
-                           !trimmed.startsWith('#') && 
-                           !trimmed.startsWith('```') &&
-                           !trimmed.startsWith('---');
-                  }) || '';
-
-                  // Clean up the description
-                  description = description
-                    .replace(/\\[.*?\\]/g, '')  // Remove markdown links
-                    .replace(/\\(.*?\\)/g, '')  // Remove URLs
-                    .replace(/[#*`]/g, '')      // Remove markdown syntax
-                    .replace(/\\n/g, ' ')       // Replace newlines with spaces
-                    .trim();
+                    if (trimmed && !trimmed.startsWith('#') && !trimmed.startsWith('`')) {
+                      description = trimmed
+                        .replace(/!?\\[([^\\]]*)\\]\\([^)]*\\)/g, '$1') // Replace markdown links with just text
+                        .replace(/[\\*`]/g, '') // Remove markdown syntax
+                        .replace(/\\n/g, ' ') // Replace newlines with spaces
+                        .trim();
+                      break;
+                    }
+                  }
 
                   // Limit description length
                   if (description.length > 200) {
@@ -107,7 +98,7 @@ jobs:
                     published: data.published === true
                   };
                 } catch (error) {
-                  console.error(\`Error processing file \${file}:\`, error);
+                  console.error('Error processing file ' + file + ':', error);
                   return null;
                 }
               })
@@ -123,8 +114,10 @@ jobs:
               JSON.stringify(validContent, null, 2)
             );
 
-            console.log(\`Generated index with \${validContent.length} entries\`);
-            console.log('Sample entry:', JSON.stringify(validContent[0], null, 2));
+            console.log('Generated index with ' + validContent.length + ' entries');
+            if (validContent.length > 0) {
+              console.log('Sample entry:', JSON.stringify(validContent[0], null, 2));
+            }
           } catch (error) {
             console.error('Error:', error);
             process.exit(1);
@@ -142,7 +135,7 @@ jobs:
         mkdir -p _site/content
         cp content/index.json _site/content/
         
-        # Copy markdown files if they exist
+        # Copy markdown files
         for file in content/*.md; do
           if [ -f "$file" ]; then
             cp "$file" _site/content/
