@@ -5,7 +5,9 @@ on:
     branches:
       - main
     paths:
-      - 'content/**'
+      - 'content/**/*.md'
+      - 'content/**.md'
+      - '!content/index.json'
   workflow_dispatch:
 
 jobs:
@@ -21,13 +23,29 @@ jobs:
     
     steps:
     - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Check for content changes
+      id: check-changes
+      run: |
+        CHANGES=$(git diff --name-status ${{ github.event.before }} ${{ github.sha }} -- 'content/*.md')
+        if [ ! -z "$CHANGES" ]; then
+          echo "changes=true" >> $GITHUB_OUTPUT
+          echo "Changes detected:"
+          echo "$CHANGES"
+        else
+          echo "changes=false" >> $GITHUB_OUTPUT
+        fi
 
     - name: Setup Node.js
+      if: steps.check-changes.outputs.changes == 'true'
       uses: actions/setup-node@v4
       with:
         node-version: '20'
 
     - name: Setup Node Project and Install Dependencies
+      if: steps.check-changes.outputs.changes == 'true'
       run: |
         echo '{
           "name": "content-indexer",
@@ -41,35 +59,73 @@ jobs:
         npm install
 
     - name: Generate Index
+      if: steps.check-changes.outputs.changes == 'true'
       run: |
         node -e "
         const fs = require('fs').promises;
         const path = require('path');
         const matter = require('gray-matter');
 
+        async function extractDescription(content) {
+          // Remove frontmatter
+          const contentWithoutFrontmatter = content.replace(/^---[\s\S]*?---/, '').trim();
+          
+          // Find first non-empty paragraph
+          const paragraphs = contentWithoutFrontmatter.split(/\n\n+/);
+          let firstParagraph = paragraphs.find(p => {
+            const trimmed = p.trim();
+            return trimmed && !trimmed.startsWith('#') && !trimmed.startsWith('```');
+          }) || '';
+
+          // Clean up the paragraph
+          firstParagraph = firstParagraph
+            .replace(/\[.*?\]/g, '') // Remove markdown links
+            .replace(/\(.*?\)/g, '') // Remove link URLs
+            .replace(/[#*`]/g, '')   // Remove markdown syntax
+            .replace(/\n/g, ' ')     // Replace newlines with spaces
+            .trim();
+
+          // Limit length and add ellipsis if needed
+          const maxLength = 200;
+          if (firstParagraph.length > maxLength) {
+            return firstParagraph.substring(0, maxLength) + '...';
+          }
+          return firstParagraph;
+        }
+
         async function generateIndex() {
           try {
             const contentDir = 'content';
+            
+            // Get list of .md files
             const files = await fs.readdir(contentDir);
             const mdFiles = files.filter(file => file.endsWith('.md'));
+            
+            console.log('Processing markdown files:', mdFiles);
 
             const contentIndex = await Promise.all(
               mdFiles.map(async (file) => {
                 try {
                   const filePath = path.join(contentDir, file);
                   const content = await fs.readFile(filePath, 'utf-8');
-                  const { data } = matter(content);
+                  const { data, content: markdownContent } = matter(content);
                   
-                  // Only include if published is true
+                  // Only include if published is explicitly true
                   if (data.published !== true) {
+                    console.log(\`Skipping \${file} - not published\`);
                     return null;
                   }
 
+                  // Extract description from content
+                  const description = await extractDescription(content);
+
                   return {
-                    title: data.title,
+                    title: data.title || '',
                     file: file,
+                    description: description,
                     date: data.date ? new Date(data.date).toISOString() : null,
-                    tags: data.tags || []
+                    tags: data.tags || [],
+                    published: true
                   };
                 } catch (error) {
                   console.error(\`Error processing file \${file}:\`, error);
@@ -86,12 +142,19 @@ jobs:
                 return new Date(b.date) - new Date(a.date);
               });
 
+            console.log(\`Generated index with \${validContent.length} entries\`);
+            
+            // Pretty print JSON with consistent formatting
+            const jsonContent = JSON.stringify(validContent, null, 2);
             await fs.writeFile(
               path.join(contentDir, 'index.json'),
-              JSON.stringify(validContent, null, 2)
+              jsonContent
             );
 
-            console.log(\`Generated index with \${validContent.length} entries\`);
+            // Log first entry as example
+            if (validContent.length > 0) {
+              console.log('Sample entry:', JSON.stringify(validContent[0], null, 2));
+            }
           } catch (error) {
             console.error('Error:', error);
             process.exit(1);
@@ -102,14 +165,16 @@ jobs:
         "
 
     - name: Setup Pages
+      if: steps.check-changes.outputs.changes == 'true'
       uses: actions/configure-pages@v4
 
     - name: Build site directory
+      if: steps.check-changes.outputs.changes == 'true'
       run: |
         mkdir -p _site/content
         cp content/index.json _site/content/
         
-        # Only copy published markdown files
+        # Copy only published markdown files
         for file in content/*.md; do
           if [ -f "$file" ] && grep -q "published: true" "$file"; then
             cp "$file" _site/content/
@@ -117,13 +182,16 @@ jobs:
         done
 
     - name: Upload artifact
+      if: steps.check-changes.outputs.changes == 'true'
       uses: actions/upload-pages-artifact@v2
 
     - name: Deploy to GitHub Pages
+      if: steps.check-changes.outputs.changes == 'true'
       id: deployment
       uses: actions/deploy-pages@v3
 
     - name: Commit and push changes
+      if: steps.check-changes.outputs.changes == 'true'
       run: |
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
