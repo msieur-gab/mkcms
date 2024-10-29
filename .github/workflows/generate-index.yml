@@ -3,7 +3,7 @@ name: Generate Content Index
 on:
   push:
     branches:
-      - master  # Assuming master is your default branch
+      - master
       - main
   workflow_dispatch:
 
@@ -21,76 +21,115 @@ jobs:
       with:
         node-version: '20'
 
+    - name: Debug Environment
+      run: |
+        echo "Current directory:"
+        pwd
+        echo "\nDirectory contents:"
+        ls -la
+        echo "\nGit status:"
+        git status
+
     - name: Create Directory and Content
       run: |
         mkdir -p content
-        echo "Creating test content if none exists"
-        if [ ! -f content/test.md ]; then
-          echo '---
-          title: Test Post
-          date: 2024-10-29
-          tags: ["test"]
-          ---
+        ls -la content/
+        echo "---
+        title: Test Post
+        date: 2024-10-29
+        tags: ['test']
+        ---
 
-          This is a test post.' > content/test.md
-        fi
+        This is a test post." > content/test.md
+        echo "\nContent directory after creation:"
+        ls -la content/
+        cat content/test.md
+
+    - name: Setup Node Project
+      run: |
+        echo "Creating package.json"
+        echo '{
+          "name": "content-indexer",
+          "version": "1.0.0",
+          "private": true,
+          "type": "commonjs"
+        }' > package.json
+        cat package.json
 
     - name: Install dependencies
       run: |
-        npm init -y
+        echo "Installing dependencies..."
         npm install gray-matter
+        echo "Node modules:"
+        ls -la node_modules/
 
     - name: Generate Index
       run: |
-        node -e "
-          const fs = require('fs').promises;
-          const path = require('path');
-          const matter = require('gray-matter');
+        echo "const fs = require('fs').promises;
+        const path = require('path');
+        const matter = require('gray-matter');
 
-          async function generateIndex() {
-            try {
-              const contentDir = 'content';
-              const files = await fs.readdir(contentDir);
-              const mdFiles = files.filter(file => file.endsWith('.md'));
-              
-              console.log('Found markdown files:', mdFiles);
+        async function generateIndex() {
+          try {
+            console.log('Starting index generation...');
+            const contentDir = 'content';
+            
+            console.log('Reading content directory...');
+            const files = await fs.readdir(contentDir);
+            console.log('Found files:', files);
+            
+            const mdFiles = files.filter(file => file.endsWith('.md'));
+            console.log('Markdown files:', mdFiles);
 
-              const contentIndex = await Promise.all(
-                mdFiles.map(async file => {
-                  const content = await fs.readFile(path.join(contentDir, file), 'utf-8');
-                  const { data, content: markdown } = matter(content);
-                  return {
-                    title: data.title || file.replace('.md', ''),
-                    file: file,
-                    date: data.date ? new Date(data.date).toISOString() : new Date().toISOString(),
-                    tags: data.tags || []
-                  };
-                })
-              );
+            const contentIndex = await Promise.all(
+              mdFiles.map(async file => {
+                console.log('Processing file:', file);
+                const content = await fs.readFile(path.join(contentDir, file), 'utf-8');
+                console.log('File content length:', content.length);
+                const { data, content: markdown } = matter(content);
+                console.log('Frontmatter:', data);
+                
+                return {
+                  title: data.title || file.replace('.md', ''),
+                  file: file,
+                  date: data.date ? new Date(data.date).toISOString() : new Date().toISOString(),
+                  tags: data.tags || []
+                };
+              })
+            );
 
-              await fs.writeFile(
-                path.join(contentDir, 'index.json'),
-                JSON.stringify(contentIndex, null, 2)
-              );
-              
-              console.log('Index generated successfully');
-            } catch (error) {
-              console.error('Error:', error);
-              process.exit(1);
-            }
+            console.log('Writing index.json...');
+            await fs.writeFile(
+              path.join(contentDir, 'index.json'),
+              JSON.stringify(contentIndex, null, 2)
+            );
+            
+            console.log('Index generated successfully');
+          } catch (error) {
+            console.error('Detailed error:', error);
+            console.error('Error stack:', error.stack);
+            process.exit(1);
           }
+        }
 
-          generateIndex();
-        "
+        generateIndex().catch(error => {
+          console.error('Top level error:', error);
+          process.exit(1);
+        });" > generate-index.js
 
-    - name: Debug Output
+        echo "Running script..."
+        node generate-index.js
+
+    - name: Show Results
+      if: always()
       run: |
-        echo "Content directory contents:"
+        echo "Final content directory structure:"
         ls -la content/
-        echo "Index.json contents:"
-        cat content/index.json
+        echo "\nIndex.json contents (if exists):"
+        cat content/index.json || echo "index.json not found"
 
     - name: Commit and push changes
+      if: success()
       run: |
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
