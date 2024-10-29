@@ -1,11 +1,10 @@
-# .github/workflows/generate-index.yml
 name: Generate Content Index
 
 on:
   push:
     branches: [ main ]
     paths:
-      - 'content/**'
+      - 'content/**/*.md'
 
 jobs:
   build:
@@ -14,41 +13,82 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
-    - name: Generate content index
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+
+    - name: Create package.json if it doesn't exist
       run: |
-        cd content
-        echo "[" > index.json
-        first=true
-        for file in *.md; do
-          if [ "$first" = false ]; then
-            echo "," >> index.json
-          fi
-          first=false
-          
-          # Extract title and date from frontmatter
-          title=$(head -n 5 "$file" | grep "title:" | cut -d ":" -f 2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-          date=$(head -n 5 "$file" | grep "date:" | cut -d ":" -f 2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-          tags=$(head -n 5 "$file" | grep "tags:" | cut -d ":" -f 2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-          
-          # Get excerpt (first paragraph after frontmatter)
-          excerpt=$(sed '1,/---/d' "$file" | awk 'NF{p=$0}END{print p}' | head -n 1)
-          
-          # Create JSON object
-          cat >> index.json << EOF
-          {
-            "title": "${title:-${file%.md}}",
-            "file": "$file",
-            "date": "${date:-$(date -r "$file" "+%Y-%m-%d")}",
-            "tags": [${tags:-}],
-            "excerpt": "${excerpt:0:150}..."
-          }
-EOF
-        done
-        echo "]" >> index.json
+        if [ ! -f package.json ]; then
+          echo '{
+            "name": "content-indexer",
+            "private": true,
+            "type": "module"
+          }' > package.json
+        fi
+
+    - name: Install dependencies
+      run: npm install gray-matter
+
+    - name: Create scripts directory and index generator
+      run: |
+        mkdir -p scripts
+        cat << 'EOF' > scripts/generate-index.js
+        const fs = require('fs').promises;
+        const path = require('path');
+        const matter = require('gray-matter');
+
+        async function generateIndex() {
+            try {
+                const contentDir = path.join(process.cwd(), 'content');
+                const files = await fs.readdir(contentDir);
+                
+                const contentIndex = await Promise.all(
+                    files
+                        .filter(file => file.endsWith('.md'))
+                        .map(async file => {
+                            const content = await fs.readFile(path.join(contentDir, file), 'utf-8');
+                            const { data, content: markdown } = matter(content);
+                            
+                            const excerpt = markdown
+                                .split('\n')
+                                .find(line => line.trim().length > 0)
+                                ?.slice(0, 150) + '...' || '';
+
+                            return {
+                                title: data.title || file.replace('.md', ''),
+                                file: file,
+                                date: data.date ? new Date(data.date).toISOString() : new Date().toISOString(),
+                                tags: data.tags || [],
+                                excerpt: excerpt
+                            };
+                        })
+                );
+
+                contentIndex.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+                await fs.writeFile(
+                    path.join(contentDir, 'index.json'),
+                    JSON.stringify(contentIndex, null, 2)
+                );
+                
+                console.log('Index generated successfully');
+            } catch (error) {
+                console.error('Error generating index:', error);
+                process.exit(1);
+            }
+        }
+
+        generateIndex();
+        EOF
+
+    - name: Generate index
+      run: node scripts/generate-index.js
 
     - name: Commit and push if changed
       run: |
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
+        git config --local user.email "github-actions[bot]@users.noreply.github.com"
+        git config --local user.name "github-actions[bot]"
         git add content/index.json
         git diff --quiet && git diff --staged --quiet || (git commit -m "Update content index" && git push)
