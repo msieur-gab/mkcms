@@ -1,7 +1,8 @@
 ---
-title: My First Post
+title: Markdown Tutorial for Apostrophe
 date: 2024-10-27
 tags: ["blog", "tutorial"]
+published: true  # Set to false for work in progress
 ---
 
 
