@@ -5,9 +5,7 @@ on:
     branches:
       - main
     paths:
-      - 'content/**/*.md'
-      - 'content/**.md'
-      - '!content/index.json'
+      - 'content/**'
   workflow_dispatch:
 
 jobs:
@@ -19,7 +17,6 @@ jobs:
       id-token: write
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     
     steps:
     - uses: actions/checkout@v4
@@ -29,103 +26,53 @@ jobs:
       with:
         node-version: '20'
 
-    - name: Setup Node Project and Install Dependencies
-      run: |
-        echo '{
-          "name": "content-indexer",
-          "version": "1.0.0",
-          "private": true,
-          "type": "commonjs",
-          "dependencies": {
-            "gray-matter": "^4.0.3"
-          }
-        }' > package.json
-        npm install
+    - name: Install dependencies
+      run: npm install gray-matter
 
     - name: Generate Index
       run: |
-        node -e "
-        const fs = require('fs').promises;
+        cat > index.js << 'EOL'
+        const fs = require('fs');
         const path = require('path');
         const matter = require('gray-matter');
 
-        async function generateIndex() {
-          try {
-            const contentDir = 'content';
-            const files = await fs.readdir(contentDir);
-            const mdFiles = files.filter(file => file.endsWith('.md'));
-            
-            console.log('Found markdown files:', mdFiles);
+        const contentDir = 'content';
+        const files = fs.readdirSync(contentDir);
+        const mdFiles = files.filter(file => file.endsWith('.md'));
 
-            const contentIndex = await Promise.all(
-              mdFiles.map(async (file) => {
-                try {
-                  const filePath = path.join(contentDir, file);
-                  const content = await fs.readFile(filePath, 'utf-8');
-                  const { data, content: markdownContent } = matter(content);
-                  
-                  // Remove frontmatter markers and get content
-                  const contentWithoutFrontmatter = markdownContent.trim();
-                  
-                  // Split into paragraphs
-                  const paragraphs = contentWithoutFrontmatter.split(/\\n\\n+/);
-                  
-                  // Find first suitable paragraph for description
-                  let description = '';
-                  for (const p of paragraphs) {
-                    const trimmed = p.trim();
-                    if (trimmed && !trimmed.startsWith('#') && !trimmed.startsWith('`')) {
-                      description = trimmed
-                        .replace(/!?\\[([^\\]]*)\\]\\([^)]*\\)/g, '$1') // Replace markdown links with just text
-                        .replace(/[\\*`]/g, '') // Remove markdown syntax
-                        .replace(/\\n/g, ' ') // Replace newlines with spaces
-                        .trim();
-                      break;
-                    }
-                  }
-
-                  // Limit description length
-                  if (description.length > 200) {
-                    description = description.substring(0, 200) + '...';
-                  }
-
-                  return {
-                    title: data.title || path.basename(file, '.md'),
-                    file: file,
-                    description: description,
-                    date: data.date ? new Date(data.date).toISOString() : new Date().toISOString(),
-                    tags: data.tags || [],
-                    published: data.published === true
-                  };
-                } catch (error) {
-                  console.error('Error processing file ' + file + ':', error);
-                  return null;
-                }
-              })
-            );
-
-            // Remove null entries and sort by date
-            const validContent = contentIndex
-              .filter(entry => entry !== null)
-              .sort((a, b) => new Date(b.date) - new Date(a.date));
-
-            await fs.writeFile(
-              path.join(contentDir, 'index.json'),
-              JSON.stringify(validContent, null, 2)
-            );
-
-            console.log('Generated index with ' + validContent.length + ' entries');
-            if (validContent.length > 0) {
-              console.log('Sample entry:', JSON.stringify(validContent[0], null, 2));
+        const contentIndex = mdFiles
+          .map(file => {
+            try {
+              const content = fs.readFileSync(path.join(contentDir, file), 'utf-8');
+              const { data, content: markdown } = matter(content);
+              const firstParagraph = markdown
+                .split('\n')
+                .find(line => line.trim() && !line.startsWith('#'))
+                ?.trim() || '';
+              
+              return {
+                title: data.title,
+                file: file,
+                description: firstParagraph.slice(0, 200),
+                date: data.date,
+                tags: data.tags,
+                published: data.published
+              };
+            } catch (error) {
+              console.error(`Error processing ${file}:`, error);
+              return null;
             }
-          } catch (error) {
-            console.error('Error:', error);
-            process.exit(1);
-          }
-        }
+          })
+          .filter(entry => entry !== null && entry.published === true)
+          .sort((a, b) => new Date(b.date) - new Date(a.date));
 
-        generateIndex();
-        "
+        fs.writeFileSync(
+          path.join(contentDir, 'index.json'),
+          JSON.stringify(contentIndex, null, 2)
+        );
+        EOL
+
+        node index.js
 
     - name: Setup Pages
       uses: actions/configure-pages@v4
@@ -134,13 +81,7 @@ jobs:
       run: |
         mkdir -p _site/content
         cp content/index.json _site/content/
-        
-        # Copy markdown files
-        for file in content/*.md; do
-          if [ -f "$file" ]; then
-            cp "$file" _site/content/
-          fi
-        done
+        cp content/*.md _site/content/
 
     - name: Upload artifact
       uses: actions/upload-pages-artifact@v2
@@ -149,7 +90,7 @@ jobs:
       id: deployment
       uses: actions/deploy-pages@v3
 
-    - name: Commit and push changes
+    - name: Commit changes
       run: |
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
