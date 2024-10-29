@@ -3,8 +3,9 @@ name: Generate Content Index
 on:
   push:
     branches:
-      - master
       - main
+    paths:
+      - 'content/**'
   workflow_dispatch:
 
 jobs:
@@ -33,17 +34,23 @@ jobs:
     - name: Create Directory and Content
       run: |
         mkdir -p content
-        ls -la content/
-        echo "---
-        title: Test Post
-        date: 2024-10-29
-        tags: ['test']
-        ---
+        if [ ! -f content/post1.md ]; then
+          echo "---
+          title: My First Post
+          date: 2024-10-29
+          tags: ['blog', 'tutorial']
+          ---
 
-        This is a test post." > content/test.md
-        echo "\nContent directory after creation:"
-        ls -la content/
-        cat content/test.md
+          # My First Post
+
+          This is a test post to verify the content loading functionality.
+
+          ## Features
+
+          - Markdown support
+          - Code highlighting
+          - Tags" > content/post1.md
+        fi
 
     - name: Setup Node Project
       run: |
@@ -54,14 +61,10 @@ jobs:
           "private": true,
           "type": "commonjs"
         }' > package.json
-        cat package.json
 
     - name: Install dependencies
       run: |
-        echo "Installing dependencies..."
         npm install gray-matter
-        echo "Node modules:"
-        ls -la node_modules/
 
     - name: Generate Index
       run: |
@@ -89,14 +92,24 @@ jobs:
                 const { data, content: markdown } = matter(content);
                 console.log('Frontmatter:', data);
                 
+                // Extract excerpt (first paragraph)
+                const excerpt = markdown
+                  .split('\n')
+                  .find(line => line.trim().length > 0)
+                  ?.slice(0, 150) + '...' || '';
+
                 return {
                   title: data.title || file.replace('.md', ''),
                   file: file,
                   date: data.date ? new Date(data.date).toISOString() : new Date().toISOString(),
-                  tags: data.tags || []
+                  tags: data.tags || [],
+                  excerpt: excerpt
                 };
               })
             );
+
+            // Sort by date, newest first
+            contentIndex.sort((a, b) => new Date(b.date) - new Date(a.date));
 
             console.log('Writing index.json...');
             await fs.writeFile(
@@ -128,10 +141,39 @@ jobs:
         echo "\nIndex.json contents (if exists):"
         cat content/index.json || echo "index.json not found"
 
+    - name: Setup Pages
+      uses: actions/configure-pages@v4
+
+    - name: Build with Jekyll
+      uses: actions/jekyll-build-action@v1
+      with:
+        source: ./
+        destination: ./_site
+
+    - name: Ensure content directory exists in build
+      run: |
+        mkdir -p _site/content
+        cp -r content/* _site/content/
+        echo "Content directory contents after copy:"
+        ls -la _site/content/
+
+    - name: Upload artifact
+      uses: actions/upload-pages-artifact@v2
+
+    - name: Deploy to GitHub Pages
+      id: deployment
+      uses: actions/deploy-pages@v3
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+
     - name: Commit and push changes
-      if: success()
       run: |
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
-        git add content/index.json
-        git diff --quiet && git diff --staged --quiet || (git commit -m "Update content index" && git push)
+        git add content/
+        git diff --quiet && git diff --staged --quiet || (git commit -m "Update content and index" && git push)
+
+    - name: Display deployment URL
+      if: success()
+      run: |
+        echo "Deployed successfully to: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}"
