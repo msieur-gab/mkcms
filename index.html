@@ -133,6 +133,31 @@
     </div>
 
     <script>
+        // Wait for DOM and libraries to load
+        document.addEventListener('DOMContentLoaded', () => {
+            // Initialize marked with security options
+            if (typeof marked !== 'undefined') {
+                marked.setOptions({
+                    headerIds: true,
+                    mangle: false,
+                    breaks: true,
+                    sanitize: true // Enable built-in sanitizer
+                });
+            } else {
+                console.error('Marked library not loaded!');
+                showError('Failed to load markdown parser. Please refresh the page.');
+                return;
+            }
+
+            // Initialize DOMPurify if available
+            if (typeof DOMPurify === 'undefined') {
+                console.warn('DOMPurify not loaded, falling back to marked sanitizer');
+            }
+
+            // Start loading content
+            loadContentList();
+        });
+
         // Configuration
         const config = {
             contentPath: '/content', // Adjust this to your content directory path
@@ -142,13 +167,6 @@
 
         // Cache for markdown content
         const contentCache = new Map();
-
-        // Initialize marked library for markdown parsing
-        marked.setOptions({
-            headerIds: true,
-            mangle: false,
-            breaks: true
-        });
 
         // Load and display content list
         async function loadContentList() {
@@ -211,12 +229,19 @@
             }
         }
 
-        // Display markdown content
+        // Display markdown content with proper sanitization
         function displayContent(content) {
             document.getElementById('contentList').classList.add('hidden');
             const contentDisplay = document.getElementById('contentDisplay');
             contentDisplay.classList.remove('hidden');
-            contentDisplay.innerHTML = marked.parse(content);
+
+            // Parse markdown and sanitize
+            let htmlContent = marked.parse(content);
+            if (typeof DOMPurify !== 'undefined') {
+                htmlContent = DOMPurify.sanitize(htmlContent);
+            }
+            
+            contentDisplay.innerHTML = htmlContent;
         }
 
         // Show content list
@@ -233,8 +258,11 @@
             document.getElementById('contentList').appendChild(error);
         }
 
-        // Initialize
-        document.addEventListener('DOMContentLoaded', loadContentList);
+        // Debug helper
+        function checkDependencies() {
+            console.log('Marked available:', typeof marked !== 'undefined');
+            console.log('DOMPurify available:', typeof DOMPurify !== 'undefined');
+        }
     </script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 </body>
