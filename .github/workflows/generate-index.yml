@@ -5,7 +5,7 @@ on:
   push:
     branches: [ main ]
     paths:
-      - 'content/**'
+      - '**.md'  # Triggers on any markdown file change
 
 jobs:
   build:
@@ -16,28 +16,33 @@ jobs:
 
     - name: Generate content index
       run: |
-        cd content
+        # Create the index at root level
         echo "[" > index.json
         first=true
-        for file in *.md; do
+        
+        # Find all md files recursively, excluding node_modules and .github
+        find . -type f -name "*.md" ! -path "./node_modules/*" ! -path "./.github/*" | while read file; do
+          # Remove leading ./ from file path
+          file_path=${file#./}
+          
           if [ "$first" = false ]; then
             echo "," >> index.json
           fi
           first=false
           
-          # Extract title and date from frontmatter
-          title=$(head -n 5 "$file" | grep "title:" | cut -d ":" -f 2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          # Extract frontmatter
+          title=$(head -n 5 "$file" | grep "title:" | cut -d ":" -f 2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sed 's/"/\\"/g')
           date=$(head -n 5 "$file" | grep "date:" | cut -d ":" -f 2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-          tags=$(head -n 5 "$file" | grep "tags:" | cut -d ":" -f 2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          tags=$(head -n 5 "$file" | grep "tags:" | cut -d ":" -f 2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sed 's/\[//g' | sed 's/\]//g')
           
           # Get excerpt (first paragraph after frontmatter)
-          excerpt=$(sed '1,/---/d' "$file" | awk 'NF{p=$0}END{print p}' | head -n 1)
+          excerpt=$(sed '1,/---/d' "$file" | awk 'NF{p=$0}END{print p}' | head -n 1 | sed 's/"/\\"/g')
           
           # Create JSON object
           cat >> index.json << EOF
           {
-            "title": "${title:-${file%.md}}",
-            "file": "$file",
+            "title": "${title:-${file_path%.md}}",
+            "file": "$file_path",
             "date": "${date:-$(date -r "$file" "+%Y-%m-%d")}",
             "tags": [${tags:-}],
             "excerpt": "${excerpt:0:150}..."
@@ -50,5 +55,5 @@ EOF
       run: |
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
-        git add content/index.json
+        git add index.json
         git diff --quiet && git diff --staged --quiet || (git commit -m "Update content index" && git push)
