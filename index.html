@@ -3,21 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <title>Markdown Content Browser</title>
-     <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
     
     <style>
         :root {
             --primary-color: #2563eb;
             --border-color: #e5e7eb;
+            --text-color: #1f2937;
+            --secondary-text: #4b5563;
+            --background: #f9fafb;
         }
         
         body {
             font-family: system-ui, -apple-system, sans-serif;
             margin: 0;
             padding: 20px;
-            background: #f9fafb;
+            background: var(--background);
             line-height: 1.5;
+            color: var(--text-color);
         }
         
         .container {
@@ -51,21 +55,12 @@
             font-size: 1.1em;
             font-weight: 600;
             margin: 0 0 10px 0;
-            color: #1f2937;
+            color: var(--text-color);
         }
         
         .content-meta {
             font-size: 0.9em;
-            color: #6b7280;
-        }
-        
-        .content-preview {
-            margin-top: 10px;
-            overflow: hidden;
-            display: -webkit-box;
-            -webkit-line-clamp: 3;
-            -webkit-box-orient: vertical;
-            color: #4b5563;
+            color: var(--secondary-text);
         }
         
         .breadcrumb {
@@ -73,7 +68,7 @@
             align-items: center;
             gap: 8px;
             margin-bottom: 20px;
-            color: #6b7280;
+            color: var(--secondary-text);
         }
         
         .breadcrumb a {
@@ -85,32 +80,6 @@
             text-decoration: underline;
         }
         
-        .loading {
-            text-align: center;
-            padding: 40px;
-            color: #6b7280;
-        }
-        
-        .error {
-            background: #fee2e2;
-            color: #991b1b;
-            padding: 15px;
-            border-radius: 8px;
-            margin: 20px 0;
-        }
-
-        #contentDisplay {
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            border: 1px solid var(--border-color);
-            margin-top: 20px;
-        }
-
-        .hidden {
-            display: none;
-        }
-
         .tag {
             display: inline-block;
             background: #e5e7eb;
@@ -118,7 +87,148 @@
             border-radius: 12px;
             font-size: 0.8em;
             margin-right: 5px;
-            color: #4b5563;
+            color: var(--secondary-text);
+        }
+
+        /* Markdown Content Styles */
+        #contentDisplay {
+            background: white;
+            padding: 40px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            margin-top: 20px;
+            max-width: 800px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        #contentDisplay h1 {
+            font-size: 2em;
+            margin-bottom: 1em;
+            padding-bottom: 0.5em;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        #contentDisplay h2 {
+            font-size: 1.5em;
+            margin-top: 1.5em;
+            margin-bottom: 0.5em;
+        }
+
+        #contentDisplay h3 {
+            font-size: 1.25em;
+            margin-top: 1.5em;
+            margin-bottom: 0.5em;
+        }
+
+        #contentDisplay p {
+            margin: 1em 0;
+            line-height: 1.7;
+        }
+
+        #contentDisplay code {
+            background: #f3f4f6;
+            padding: 0.2em 0.4em;
+            border-radius: 3px;
+            font-family: ui-monospace, monospace;
+            font-size: 0.9em;
+        }
+
+        #contentDisplay pre {
+            background: #f3f4f6;
+            padding: 1em;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 1em 0;
+        }
+
+        #contentDisplay pre code {
+            background: none;
+            padding: 0;
+            border-radius: 0;
+        }
+
+        #contentDisplay blockquote {
+            border-left: 4px solid var(--primary-color);
+            margin: 1em 0;
+            padding: 0.5em 1em;
+            background: #f3f4f6;
+        }
+
+        #contentDisplay ul, #contentDisplay ol {
+            padding-left: 2em;
+            margin: 1em 0;
+        }
+
+        #contentDisplay li {
+            margin: 0.5em 0;
+        }
+
+        #contentDisplay img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 4px;
+        }
+
+        #contentDisplay hr {
+            border: none;
+            border-top: 1px solid var(--border-color);
+            margin: 2em 0;
+        }
+
+        #contentDisplay a {
+            color: var(--primary-color);
+            text-decoration: none;
+        }
+
+        #contentDisplay a:hover {
+            text-decoration: underline;
+        }
+
+        .back-button {
+            display: inline-block;
+            padding: 8px 16px;
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9em;
+            margin-bottom: 20px;
+            transition: background-color 0.2s;
+        }
+
+        .back-button:hover {
+            background-color: #1d4ed8;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        /* Table styles */
+        #contentDisplay table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1em 0;
+        }
+
+        #contentDisplay th, #contentDisplay td {
+            border: 1px solid var(--border-color);
+            padding: 0.5em;
+            text-align: left;
+        }
+
+        #contentDisplay th {
+            background: #f3f4f6;
+        }
+
+        /* Footnotes */
+        .footnotes {
+            margin-top: 2em;
+            padding-top: 1em;
+            border-top: 1px solid var(--border-color);
+            font-size: 0.9em;
         }
     </style>
 </head>
@@ -133,16 +243,28 @@
     </div>
 
     <script>
-          // Configuration
+        // Configuration
         const config = {
             contentPath: '/mkcms/content',
             fileExtension: '.md',
             excerptLength: 150,
-            // Add repository information
             owner: 'msieur-gab',
             repo: 'mkcms',
-            branch: 'main' // or 'master', depending on your default branch
+            branch: 'main'
         };
+
+        // Configure marked options
+        marked.setOptions({
+            gfm: true, // GitHub Flavored Markdown
+            breaks: true, // Convert line breaks to <br>
+            headerIds: true, // Add IDs to headers
+            mangle: false, // Don't escape HTML
+            pedantic: false, // Don't be too strict
+            sanitize: false, // Let DOMPurify handle sanitization
+            smartLists: true, // Use smarter list behavior
+            smartypants: true, // Use smart punctuation
+            xhtml: true // Close empty elements with />
+        });
 
         async function loadContentList() {
             try {
@@ -181,7 +303,10 @@
                 }
                 
                 const content = await response.text();
-                displayContent(content);
+                
+                // Remove frontmatter before rendering
+                const cleanContent = content.replace(/^---[\s\S]*?---/, '').trim();
+                displayContent(cleanContent);
             } catch (error) {
                 console.error('Error loading content:', error);
                 showError(`Failed to load content: ${error.message}`);
@@ -218,19 +343,24 @@
             const contentDisplay = document.getElementById('contentDisplay');
             contentDisplay.classList.remove('hidden');
             
+            // Create back button
+            const backButton = document.createElement('button');
+            backButton.className = 'back-button';
+            backButton.textContent = 'Back to List';
+            backButton.onclick = showContentList;
+            
             // Parse and sanitize markdown
             const parsedContent = marked.parse(content);
             const sanitizedContent = DOMPurify.sanitize(parsedContent);
-            contentDisplay.innerHTML = sanitizedContent;
+            
+            contentDisplay.innerHTML = '';
+            contentDisplay.appendChild(backButton);
+            contentDisplay.insertAdjacentHTML('beforeend', sanitizedContent);
+        }
 
-            // Add back button
-            const backButton = document.createElement('button');
-            backButton.textContent = 'Back to List';
-            backButton.onclick = () => {
-                contentDisplay.classList.add('hidden');
-                document.getElementById('contentList').classList.remove('hidden');
-            };
-            contentDisplay.insertBefore(backButton, contentDisplay.firstChild);
+        function showContentList() {
+            document.getElementById('contentDisplay').classList.add('hidden');
+            document.getElementById('contentList').classList.remove('hidden');
         }
 
         function showError(message) {
@@ -242,8 +372,6 @@
 
         // Initialize on load
         document.addEventListener('DOMContentLoaded', loadContentList);
-   
     </script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 </body>
 </html>
