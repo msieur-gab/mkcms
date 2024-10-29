@@ -40,14 +40,6 @@ jobs:
         # Install dependencies and generate lock file
         npm install
 
-    - name: Create content directory if it doesn't exist
-      run: |
-        mkdir -p content
-        # If your markdown file is in the root, move it to content
-        if [ -f "*.md" ]; then
-          mv *.md content/
-        fi
-
     - name: Generate Index
       run: |
         node -e "
@@ -64,13 +56,7 @@ jobs:
               await fs.access(contentDir);
             } catch {
               await fs.mkdir(contentDir, { recursive: true });
-            }
-            
-            const files = await fs.readdir(contentDir);
-            const mdFiles = files.filter(file => file.endsWith('.md'));
-
-            if (mdFiles.length === 0) {
-              console.log('No markdown files found in content directory');
+              // Create empty index if directory was just created
               await fs.writeFile(
                 path.join(contentDir, 'index.json'),
                 JSON.stringify([], null, 2)
@@ -78,7 +64,25 @@ jobs:
               return;
             }
 
-            const contentIndex = await Promise.all(
+            // Read existing index.json if it exists
+            let existingIndex = [];
+            try {
+              const indexContent = await fs.readFile(path.join(contentDir, 'index.json'), 'utf-8');
+              existingIndex = JSON.parse(indexContent);
+            } catch (error) {
+              console.log('No existing index.json found or invalid format, creating new index');
+            }
+
+            // Get list of current markdown files
+            const files = await fs.readdir(contentDir);
+            const mdFiles = files.filter(file => file.endsWith('.md'));
+            const currentFiles = new Set(mdFiles);
+
+            // Remove entries for files that no longer exist
+            existingIndex = existingIndex.filter(entry => currentFiles.has(entry.file));
+
+            // Process current files
+            const newIndex = await Promise.all(
               mdFiles.map(async (file) => {
                 try {
                   const filePath = path.join(contentDir, file);
@@ -90,8 +94,21 @@ jobs:
                     return null;
                   }
 
+                  // Get file stats
+                  const stats = await fs.stat(filePath);
+                  const lastModified = stats.mtime.toISOString();
+
+                  // Check if file already exists in index and hasn't been modified
+                  const existingEntry = existingIndex.find(entry => 
+                    entry.file === file && entry.lastModified === lastModified
+                  );
+
+                  if (existingEntry) {
+                    return existingEntry;
+                  }
+
                   // Extract excerpt - first paragraph after frontmatter
-                  const excerptMatch = markdown.match(/^([^#\n].*?)(?=\n\n|\n#|$)/s);
+                  const excerptMatch = markdown.match(/^([^#\\n].*?)(?=\\n\\n|\\n#|$)/s);
                   const excerpt = excerptMatch 
                     ? excerptMatch[0].trim().slice(0, 150) + (excerptMatch[0].length > 150 ? '...' : '')
                     : '';
@@ -102,7 +119,7 @@ jobs:
                     date: data.date ? new Date(data.date).toISOString() : new Date().toISOString(),
                     tags: data.tags || [],
                     excerpt: excerpt,
-                    lastModified: (await fs.stat(filePath)).mtime.toISOString()
+                    lastModified: lastModified
                   };
                 } catch (error) {
                   console.error(\`Error processing file \${file}:\`, error);
@@ -112,7 +129,7 @@ jobs:
             );
 
             // Remove null entries and sort by date
-            const validContent = contentIndex
+            const validContent = newIndex
               .filter(entry => entry !== null)
               .sort((a, b) => new Date(b.date) - new Date(a.date));
 
@@ -122,6 +139,10 @@ jobs:
             );
 
             console.log(\`Generated index with \${validContent.length} entries\`);
+            
+            // Log details about changes
+            console.log(\`Found \${mdFiles.length} markdown files\`);
+            console.log(\`Removed \${existingIndex.length - validContent.length} old entries\`);
           } catch (error) {
             console.error('Error:', error);
             process.exit(1);
@@ -139,12 +160,6 @@ jobs:
         # Create _site directory
         mkdir -p _site/content
         
-        # Ensure content directory exists
-        mkdir -p content
-        
-        # Create empty index.json if it doesn't exist
-        [ ! -f "content/index.json" ] && echo "[]" > content/index.json
-        
         # Copy index.json
         cp content/index.json _site/content/
         
@@ -159,7 +174,7 @@ jobs:
           done
         fi
         
-        # Copy other files if they exist (make this part optional)
+        # Copy other files if they exist
         [ -f "index.html" ] && cp index.html _site/ || true
         [ -d "styles" ] && cp -r styles _site/ || true
         [ -d "scripts" ] && cp -r scripts _site/ || true
