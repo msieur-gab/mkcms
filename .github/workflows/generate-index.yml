@@ -56,49 +56,40 @@ jobs:
             const files = await fs.readdir(contentDir);
             const mdFiles = files.filter(file => file.endsWith('.md'));
 
-            // Verify files exist and get their stats
-            const existingFiles = await Promise.all(
-              mdFiles.map(async file => {
-                const filePath = path.join(contentDir, file);
-                try {
-                  await fs.access(filePath, fs.constants.F_OK);
-                  const stats = await fs.stat(filePath);
-                  return { file, exists: true, stats };
-                } catch {
-                  return { file, exists: false };
-                }
-              })
-            );
-
             const contentIndex = await Promise.all(
-              existingFiles
-                .filter(f => f.exists)
-                .map(async ({ file, stats }) => {
-                  const content = await fs.readFile(path.join(contentDir, file), 'utf-8');
+              mdFiles.map(async (file) => {
+                try {
+                  const filePath = path.join(contentDir, file);
+                  const content = await fs.readFile(filePath, 'utf-8');
                   const { data, content: markdown } = matter(content);
                   
-                  // Skip unpublished content
+                  // Skip if published is explicitly set to false
                   if (data.published === false) {
                     return null;
                   }
 
-                  const excerpt = markdown
-                    .split('\n')
-                    .find(line => line.trim().length > 0)
-                    ?.slice(0, 150) + '...' || '';
+                  // Extract excerpt - first paragraph after frontmatter
+                  const excerptMatch = markdown.match(/^([^#\n].*?)(?=\n\n|\n#|$)/s);
+                  const excerpt = excerptMatch 
+                    ? excerptMatch[0].trim().slice(0, 150) + (excerptMatch[0].length > 150 ? '...' : '')
+                    : '';
 
                   return {
-                    title: data.title || file.replace('.md', ''),
+                    title: data.title,
                     file: file,
                     date: data.date ? new Date(data.date).toISOString() : new Date().toISOString(),
                     tags: data.tags || [],
                     excerpt: excerpt,
-                    lastModified: stats.mtime.toISOString()
+                    lastModified: (await fs.stat(filePath)).mtime.toISOString()
                   };
-                })
+                } catch (error) {
+                  console.error(\`Error processing file \${file}:\`, error);
+                  return null;
+                }
+              })
             );
 
-            // Remove null entries and sort
+            // Remove null entries and sort by date
             const validContent = contentIndex
               .filter(entry => entry !== null)
               .sort((a, b) => new Date(b.date) - new Date(a.date));
