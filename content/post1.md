@@ -5,7 +5,6 @@ tags: ["blog", "tutorial"]
 published: true  # Set to false for work in progress
 ---
 
-
 Markdown Tutorial for Apostrophe
 ================================
 
