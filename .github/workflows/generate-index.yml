@@ -50,15 +50,29 @@ jobs:
             const files = await fs.readdir(contentDir);
             const mdFiles = files.filter(file => file.endsWith('.md'));
 
-            const contentIndex = await Promise.all(
+            // Verify files exist and get their stats
+            const existingFiles = await Promise.all(
               mdFiles.map(async file => {
+                const filePath = path.join(contentDir, file);
                 try {
+                  await fs.access(filePath, fs.constants.F_OK);
+                  const stats = await fs.stat(filePath);
+                  return { file, exists: true, stats };
+                } catch {
+                  return { file, exists: false };
+                }
+              })
+            );
+
+            const contentIndex = await Promise.all(
+              existingFiles
+                .filter(f => f.exists) // Only process files that exist
+                .map(async ({ file, stats }) => {
                   const content = await fs.readFile(path.join(contentDir, file), 'utf-8');
                   const { data, content: markdown } = matter(content);
                   
                   // Skip unpublished content
                   if (data.published === false) {
-                    console.log(`Skipping unpublished file: ${file}`);
                     return null;
                   }
 
@@ -73,25 +87,23 @@ jobs:
                     date: data.date ? new Date(data.date).toISOString() : new Date().toISOString(),
                     tags: data.tags || [],
                     excerpt: excerpt,
-                    lastModified: new Date().toISOString()
+                    lastModified: stats.mtime.toISOString()
                   };
-                } catch (error) {
-                  console.error(`Error processing file ${file}:`, error);
-                  return null;
-                }
-              })
+                })
             );
 
-            // Remove null entries (unpublished or errored files)
-            const publishedContent = contentIndex.filter(entry => entry !== null);
-
-            // Sort by date, newest first
-            publishedContent.sort((a, b) => new Date(b.date) - new Date(a.date));
+            // Remove null entries and sort
+            const validContent = contentIndex
+              .filter(entry => entry !== null)
+              .sort((a, b) => new Date(b.date) - new Date(a.date));
 
             await fs.writeFile(
               path.join(contentDir, 'index.json'),
-              JSON.stringify(publishedContent, null, 2)
+              JSON.stringify(validContent, null, 2)
             );
+
+            // Log final content count
+            console.log(\`Generated index with \${validContent.length} entries\`);
           } catch (error) {
             console.error('Error:', error);
             process.exit(1);
@@ -113,14 +125,12 @@ jobs:
     - name: Copy only published content
       run: |
         mkdir -p _site/content
-        # Copy index.json
         cp content/index.json _site/content/
-        # Copy only published markdown files
         for file in content/*.md; do
-          if grep -q "published: false" "$file"; then
-            echo "Skipping unpublished file: $file"
-          else
-            cp "$file" _site/content/
+          if [ -f "$file" ]; then
+            if ! grep -q "published: false" "$file"; then
+              cp "$file" _site/content/
+            fi
           fi
         done
 
