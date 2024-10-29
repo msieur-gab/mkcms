@@ -15,6 +15,9 @@ jobs:
       contents: write
       pages: write
       id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     
     steps:
     - uses: actions/checkout@v4
@@ -26,7 +29,6 @@ jobs:
 
     - name: Setup Node Project and Install Dependencies
       run: |
-        # Create package.json
         echo '{
           "name": "content-indexer",
           "version": "1.0.0",
@@ -36,8 +38,6 @@ jobs:
             "gray-matter": "^4.0.3"
           }
         }' > package.json
-        
-        # Install dependencies and generate lock file
         npm install
 
     - name: Generate Index
@@ -50,76 +50,26 @@ jobs:
         async function generateIndex() {
           try {
             const contentDir = 'content';
-            
-            // Ensure content directory exists
-            try {
-              await fs.access(contentDir);
-            } catch {
-              await fs.mkdir(contentDir, { recursive: true });
-              // Create empty index if directory was just created
-              await fs.writeFile(
-                path.join(contentDir, 'index.json'),
-                JSON.stringify([], null, 2)
-              );
-              return;
-            }
-
-            // Read existing index.json if it exists
-            let existingIndex = [];
-            try {
-              const indexContent = await fs.readFile(path.join(contentDir, 'index.json'), 'utf-8');
-              existingIndex = JSON.parse(indexContent);
-            } catch (error) {
-              console.log('No existing index.json found or invalid format, creating new index');
-            }
-
-            // Get list of current markdown files
             const files = await fs.readdir(contentDir);
             const mdFiles = files.filter(file => file.endsWith('.md'));
-            const currentFiles = new Set(mdFiles);
 
-            // Remove entries for files that no longer exist
-            existingIndex = existingIndex.filter(entry => currentFiles.has(entry.file));
-
-            // Process current files
-            const newIndex = await Promise.all(
+            const contentIndex = await Promise.all(
               mdFiles.map(async (file) => {
                 try {
                   const filePath = path.join(contentDir, file);
                   const content = await fs.readFile(filePath, 'utf-8');
-                  const { data, content: markdown } = matter(content);
+                  const { data } = matter(content);
                   
-                  // Skip if published is explicitly set to false
-                  if (data.published === false) {
+                  // Only include if published is true
+                  if (data.published !== true) {
                     return null;
                   }
-
-                  // Get file stats
-                  const stats = await fs.stat(filePath);
-                  const lastModified = stats.mtime.toISOString();
-
-                  // Check if file already exists in index and hasn't been modified
-                  const existingEntry = existingIndex.find(entry => 
-                    entry.file === file && entry.lastModified === lastModified
-                  );
-
-                  if (existingEntry) {
-                    return existingEntry;
-                  }
-
-                  // Extract excerpt - first paragraph after frontmatter
-                  const excerptMatch = markdown.match(/^([^#\\n].*?)(?=\\n\\n|\\n#|$)/s);
-                  const excerpt = excerptMatch 
-                    ? excerptMatch[0].trim().slice(0, 150) + (excerptMatch[0].length > 150 ? '...' : '')
-                    : '';
 
                   return {
                     title: data.title,
                     file: file,
-                    date: data.date ? new Date(data.date).toISOString() : new Date().toISOString(),
-                    tags: data.tags || [],
-                    excerpt: excerpt,
-                    lastModified: lastModified
+                    date: data.date ? new Date(data.date).toISOString() : null,
+                    tags: data.tags || []
                   };
                 } catch (error) {
                   console.error(\`Error processing file \${file}:\`, error);
@@ -129,9 +79,12 @@ jobs:
             );
 
             // Remove null entries and sort by date
-            const validContent = newIndex
+            const validContent = contentIndex
               .filter(entry => entry !== null)
-              .sort((a, b) => new Date(b.date) - new Date(a.date));
+              .sort((a, b) => {
+                if (!a.date || !b.date) return 0;
+                return new Date(b.date) - new Date(a.date);
+              });
 
             await fs.writeFile(
               path.join(contentDir, 'index.json'),
@@ -139,10 +92,6 @@ jobs:
             );
 
             console.log(\`Generated index with \${validContent.length} entries\`);
-            
-            // Log details about changes
-            console.log(\`Found \${mdFiles.length} markdown files\`);
-            console.log(\`Removed \${existingIndex.length - validContent.length} old entries\`);
           } catch (error) {
             console.error('Error:', error);
             process.exit(1);
@@ -157,37 +106,26 @@ jobs:
 
     - name: Build site directory
       run: |
-        # Create _site directory
         mkdir -p _site/content
-        
-        # Copy index.json
         cp content/index.json _site/content/
         
-        # Copy markdown files if they exist
-        if [ -n "$(find content -name '*.md' 2>/dev/null)" ]; then
-          for file in content/*.md; do
-            if [ -f "$file" ]; then
-              if ! grep -q "published: false" "$file"; then
-                cp "$file" _site/content/
-              fi
-            fi
-          done
-        fi
-        
-        # Copy other files if they exist
-        [ -f "index.html" ] && cp index.html _site/ || true
-        [ -d "styles" ] && cp -r styles _site/ || true
-        [ -d "scripts" ] && cp -r scripts _site/ || true
+        # Only copy published markdown files
+        for file in content/*.md; do
+          if [ -f "$file" ] && grep -q "published: true" "$file"; then
+            cp "$file" _site/content/
+          fi
+        done
 
     - name: Upload artifact
       uses: actions/upload-pages-artifact@v2
 
     - name: Deploy to GitHub Pages
+      id: deployment
       uses: actions/deploy-pages@v3
 
     - name: Commit and push changes
       run: |
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
-        git add content/ package.json package-lock.json
-        git diff --quiet && git diff --staged --quiet || (git commit -m "Update content and index" && git push)
+        git add content/index.json
+        git diff --quiet && git diff --staged --quiet || (git commit -m "Update content index" && git push)
